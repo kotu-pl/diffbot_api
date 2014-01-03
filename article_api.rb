@@ -1,5 +1,4 @@
-require "json"
-require "open-uri"
+require "httparty"
 
 module Diffbot
   ARTICLE_V2_URL = "http://api.diffbot.com/v2/article"
@@ -16,7 +15,7 @@ module Diffbot
 
   #TODO: include Enumerable
   class ArticleAPI
-    attr_accessor :token, :url, :fields, :timeout, :callback, :result
+    attr_accessor :token, :url, :options, :result
 
     def initialize(args = {})
       self.token = args.fetch(:token, Diffbot.token)
@@ -24,9 +23,12 @@ module Diffbot
       raise ArgumentError, "TOKEN not provided" unless self.token
       raise ArgumentError, "URL(s) not provided" unless self.url
 
-      self.fields = args[:fields] || nil
-      self.timeout = args[:timeout] || nil
-      self.callback = args[:callback] || nil
+      if args[:options]
+        opt_keys = %i(fields timeout callback)
+        self.options = Hash[args[:options].find_all{|k,v| opt_keys.include?(k)}]
+      else
+        self.options = nil
+      end
 
       self.result = nil
     end
@@ -38,17 +40,18 @@ module Diffbot
     end
 
     def process!
-      @result = JSON.load(open(Diffbot::ARTICLE_V2_URL  + "?token=#{token}&url=#{url}"))
+      query = {:token => token, :url => url}
+      query.merge!(self.options) if self.options
+
+      api_call = HTTParty.get(Diffbot::ARTICLE_V2_URL, :query =>  query)
+      raise RuntimeError, "Wrong response code (not 200): #{api_call.code}" if api_call.code != 200
+
+      @result = api_call.parsed_response
       self
     end
 
     def to_s
       @result ? "Result for #{url} => #{@result}" : "No results fetched yet"
-    end
-
-    #static function
-    class << self
-
     end
   end
 
@@ -72,24 +75,3 @@ module Diffbot
     end
   end
 end
-
-Diffbot::token = ''
-
-urls = %w(http://www.webmonkey.com/2013/04/nginx-speeds-up-the-tubes-with-spdy-support http://techcrunch.com/2014/01/02/join-us-for-hardware-battlefield-where-martha-stewart-and-our-other-celebrity-judges-will-pick-the-best-hardware-startup-of-the-year http://techcrunch.com/2014/01/02/go-ahead-ces-2014-prove-theres-tech-i-want-to-wear http://techcrunch.com/2014/01/03/kiwi-puts-its-all-purpose-wearable-up-for-pre-order-aims-to-be-everything-to-everyone)
-puts "Direct, one element, fetch:"
-puts Diffbot::ArticleAPI.new(url: urls.last).process
-puts '--------------'
-
-multiple_enumareble = Diffbot::DiffbotEnumerator.new
-urls.each do |u|
-  multiple_enumareble << Diffbot::ArticleAPI.new(url: u).process
-end
-
-puts "All items:"
-multiple_enumareble.each { |item| puts item }
-puts '--------------'
-
-puts "Searching for items 'webmonkey.com' item:"
-puts multiple_enumareble.find_all { |result| result.url =~ /webmonkey.com/ }
-puts '--------------'
-
